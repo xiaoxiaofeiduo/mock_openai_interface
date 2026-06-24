@@ -140,6 +140,11 @@ button {
 }
 
 .panel {
+    display: flex;
+    flex-direction: column;
+    height: min(760px, calc(100vh - 170px));
+    min-height: 520px;
+    overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.94);
@@ -164,7 +169,10 @@ button {
 form {
     display: grid;
     gap: 18px;
+    flex: 1;
+    min-height: 0;
     padding: 20px;
+    overflow-y: auto;
 }
 
 .field-group {
@@ -314,16 +322,9 @@ button:hover {
     background: #fee2e2;
 }
 
-.chat-panel {
-    display: flex;
-    flex-direction: column;
-    min-height: 520px;
-}
-
 #chat_box {
     flex: 1;
-    min-height: 438px;
-    height: auto;
+    min-height: 0;
     margin: 20px;
     padding: 16px;
     overflow-y: auto;
@@ -346,7 +347,18 @@ button:hover {
     width: 10px;
 }
 
+#chatForm::-webkit-scrollbar {
+    width: 10px;
+}
+
 #chat_box::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-color: #b8c4d6;
+    background-clip: content-box;
+}
+
+#chatForm::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: 999px;
     background-color: #b8c4d6;
@@ -402,7 +414,8 @@ button:hover {
         grid-template-columns: 1fr;
     }
 
-    .chat-panel {
+    .panel {
+        height: min(620px, calc(100vh - 120px));
         min-height: 420px;
     }
 
