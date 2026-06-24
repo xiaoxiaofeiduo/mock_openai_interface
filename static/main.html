@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>接口测试页面导航</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <main class="page-shell">
+        <header class="topbar">
+            <div class="brand">
+                <p class="eyebrow">Mock Chat Server</p>
+                <h1>接口测试页面导航</h1>
+                <p class="subtitle">选择一个协议页面，快速验证非流式与 SSE 流式响应。</p>
+            </div>
+        </header>
+
+        <ul class="nav-grid">
+            <li>
+                <a href="/static/simulate_chat_ai.html" class="nav-card">
+                    <strong>OpenAI 聊天模拟测试</strong>
+                    <span>使用 `/v1/chat/completions`，验证 OpenAI 兼容的请求体、分块内容和 `[DONE]` 结束标记。</span>
+                </a>
+            </li>
+            <li>
+                <a href="/static/simulate_customize_chat.html" class="nav-card">
+                    <strong>自定义流式响应测试</strong>
+                    <span>使用 `/v1/custom/chat`，验证自定义 `prompt_id`、回复字段和 `[FINISH]` 结束标记。</span>
+                </a>
+            </li>
+        </ul>
+    </main>
+</body>
+</html>

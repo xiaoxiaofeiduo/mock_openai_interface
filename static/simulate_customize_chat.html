@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自定义流式响应测试</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+
+<body>
+    <main class="page-shell">
+        <header class="topbar">
+            <div class="brand">
+                <p class="eyebrow">Custom Protocol</p>
+                <h1>自定义流式响应测试</h1>
+                <p class="subtitle">填写用户消息和预设模型答复，模拟 `/v1/custom/chat` 的自定义流式或非流式响应。</p>
+            </div>
+            <a class="home-link" href="/">返回导航</a>
+        </header>
+
+        <section class="workspace">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">请求参数</h2>
+                    <p class="panel-note">页面会自动生成 `prompt_id`，并校验响应中的 ID 是否一致。</p>
+                </div>
+                <form id="chatForm">
+                    <div class="field-group">
+                        <label class="field-label" for="user_messages_0">
+                            用户消息
+                            <span class="field-hint">可添加多条</span>
+                        </label>
+                        <div id="user_messages_container" class="message-stack">
+                            <div class="message-item">
+                                <textarea id="user_messages_0" class="user_message" name="user_messages[]" placeholder="例如：请按自定义协议返回内容" rows="2"></textarea>
+                            </div>
+                        </div>
+                        <div class="actions">
+                            <button type="button" onclick="addCustomUserMessage()" class="secondary-button">添加用户消息</button>
+                        </div>
+                    </div>
+
+                    <div class="field-group">
+                        <label class="field-label" for="system_messages_0">
+                            Model 答复
+                            <span class="field-hint">服务端会返回这里的内容</span>
+                        </label>
+                        <div id="system_messages_container" class="message-stack">
+                            <div class="message-item">
+                                <textarea id="system_messages_0" class="system_message" name="system_messages[]" placeholder="例如：这是一个自定义协议回复。" rows="3"></textarea>
+                            </div>
+                        </div>
+                        <div class="actions">
+                            <button type="button" onclick="addCustomSystemMessage()" class="secondary-button">添加答复片段</button>
+                        </div>
+                    </div>
+
+                    <div class="controls-grid">
+                        <div class="control-field">
+                            <label for="model">模型</label>
+                            <input type="text" id="model" name="model" value="deepseek-r1:1.5b" placeholder="输入模型名称" class="model-input">
+                        </div>
+                        <div class="control-field">
+                            <label for="token_length">Token 长度</label>
+                            <input type="text" id="token_length" name="token_length" value="3" placeholder="3" class="token-length-input">
+                        </div>
+                        <div class="control-field">
+                            <label for="x_real_ip">X-Real-IP</label>
+                            <input type="text" id="x_real_ip" name="x_real_ip" value="" placeholder="可选" class="x-real-ip-input">
+                        </div>
+                        <div class="control-field">
+                            <label for="stream">传输方式</label>
+                            <label class="toggle-field" for="stream">
+                                <span>流式传输</span>
+                                <input type="checkbox" id="stream" name="stream" checked>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button type="submit" id="submitCustomButton">发送请求</button>
+                        <button type="button" class="secondary-button" onclick="document.getElementById('chat_box').innerHTML = ''">清空对话</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="panel chat-panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">响应预览</h2>
+                    <p class="panel-note">用户消息靠右显示，模型回复靠左显示。</p>
+                </div>
+                <div id="chat_box"></div>
+            </div>
+        </section>
+    </main>
+    <script>
+
+        // 生成 UUID v4 的函数
+        function generateUUID() {
+            const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';
+            return template.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }        
+
+        function appendMessageField(containerId, className, name, placeholder, idPrefix) {
+            const container = document.getElementById(containerId);
+            const newIndex = container.querySelectorAll('textarea').length;
+            const item = document.createElement('div');
+            item.className = 'message-item';
+
+            const textarea = document.createElement('textarea');
+            textarea.id = `${idPrefix}_${newIndex}`;
+            textarea.className = className;
+            textarea.name = name;
+            textarea.placeholder = placeholder;
+            textarea.rows = 1;
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'danger-button';
+            removeButton.textContent = '删除';
+            removeButton.addEventListener('click', function () {
+                item.remove();
+            });
+
+            item.appendChild(textarea);
+            item.appendChild(removeButton);
+            container.appendChild(item);
+            textarea.focus();
+        }
+
+        function addCustomUserMessage() {
+            appendMessageField('user_messages_container', 'user_message', 'user_messages[]', '输入用户消息', 'user_messages');
+        }
+
+        function addCustomSystemMessage() {
+            appendMessageField('system_messages_container', 'system_message', 'system_messages[]', '输入系统消息', 'system_messages');
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('submitCustomButton').addEventListener('click', function (event)  {
+                event.preventDefault();
+
+                const model = document.getElementById('model').value;
+                const stream = document.getElementById('stream').checked;
+                const tokenLength = document.getElementById('token_length').value;
+                const xRealIp = document.getElementById('x_real_ip').value.trim();
+                const headers = { 'Content-Type': 'application/json' };
+                if (xRealIp) {
+                    headers['X-Real-IP'] = xRealIp;
+                }
+
+                const userMessages = Array.from(document.querySelectorAll('.user_message')).map(textarea => textarea.value);
+                const systemMessages = Array.from(document.querySelectorAll('.system_message')).map(textarea => textarea.value);
+
+                const messages = [];
+                systemMessages.forEach(message => {
+                    if (message) {
+                        messages.push({
+                            content: message,
+                            role: "system"
+                        });
+                    }
+                });
+                userMessages.forEach(message => {
+                    if (message) {
+                        messages.push({
+                            content: message,
+                            role: "user"
+                        });
+                    }
+                });
+                const generate_UUID = generateUUID()
+
+                const data = {
+                    model: model,
+                    prompt_id: generate_UUID,
+                    prompt: messages,
+                    is_stream: stream
+                };
+
+                const url = `/v1/custom/chat?token_length=${tokenLength}`;
+
+                // 显示用户输入信息
+                userMessages.forEach(message => {
+                    if (message) {
+                        const chatBox = document.getElementById('chat_box');
+                        const userMessageDiv = document.createElement('div');
+                        userMessageDiv.classList.add('user-message'); // 添加用户消息样式类
+                        userMessageDiv.textContent = `User: ${message}`;
+                        chatBox.appendChild(userMessageDiv);
+                        // 滚动到聊天框底部
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                    }
+                });
+
+                if (stream) {
+                    const chatBox = document.getElementById('chat_box');
+                    let aiMessage = '';
+                    let aiMessageDiv = null;
+
+                    fetch(url, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(data)
+                    })
+                       .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            const reader = response.body.getReader();
+                            const decoder = new TextDecoder();
+                            let buffer = '';
+
+                            function read() {
+                                return reader.read().then(({ done, value }) => {
+                                    if (done) {
+                                        return;
+                                    }
+                                    buffer += decoder.decode(value, { stream: true });
+                                    const lines = buffer.split('\n');
+                                    buffer = lines.pop();
+
+                                    lines.forEach(line => {
+                                        if (line.trim() === 'data: [FINISH]') {
+                                            return;
+                                        }
+                                        // 去掉 data: 前缀
+                                        if (line.startsWith('data: ')) {
+                                            const jsonStr = line.slice(6).trim();
+                                            if (jsonStr) {
+                                                try {
+                                                    const responseData = JSON.parse(jsonStr);
+                                                    if (responseData.prompt_id !== generate_UUID) {
+                                                        console.error('prompt_id 不匹配:', responseData.prompt_id, '预期:', generate_UUID);
+                                                        return;
+                                                    }
+                                                    if (responseData.reply) {
+                                                        const content = responseData.reply;
+                                                        aiMessage += content;
+
+                                                        if (!aiMessageDiv) {
+                                                            aiMessageDiv = document.createElement('div');
+                                                            aiMessageDiv.classList.add('ai-message'); // 添加 AI 消息样式类
+                                                            aiMessageDiv.textContent = `Model: ${aiMessage}`;
+                                                            chatBox.appendChild(aiMessageDiv);
+                                                        } else {
+                                                            aiMessageDiv.textContent = `Model: ${aiMessage}`;
+                                                        }
+                                                        // 滚动到聊天框底部
+                                                        chatBox.scrollTop = chatBox.scrollHeight;
+                                                    }
+                                                } catch (error) {
+                                                    console.error('Failed to parse JSON:', error);
+                                                }
+                                            }
+                                        }
+                                    });
+
+                                    return read();
+                                });
+                            }
+
+                            return read();
+                        })
+                       .catch(error => {
+                            console.error('Error:', error);
+                        });
+                } else {
+                    fetch(url, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(data)
+                    })
+                       .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                            }
+                            return response.json();
+                        })
+                       .then(result => {
+                            const chatBox = document.getElementById('chat_box');
+                            const aiMessageDiv = document.createElement('div');
+                            aiMessageDiv.classList.add('ai-message'); // 添加 AI 消息样式类
+                            aiMessageDiv.textContent = `Model: ${result.reply}`;
+                            chatBox.appendChild(aiMessageDiv);
+                            // 滚动到聊天框底部
+                            chatBox.scrollTop = chatBox.scrollHeight;
+                        })
+                       .catch(error => {
+                            console.error('Error:', error);
+                        });
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
