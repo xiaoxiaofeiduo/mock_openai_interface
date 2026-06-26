@@ -77,12 +77,21 @@ type CustomResponseChunk struct {
 var responseChunks []string
 var customResponseChunks []string
 
+const streamChunkDelay = 300 * time.Millisecond
+const sseContentType = "text/event-stream; charset=utf-8"
+
 // echoRealIP 读取请求头 X-Real-IP,若非空则回写到响应头 X-Echoed-Real-IP。
 // 必须在响应写入(WriteHeader/c.JSON)之前调用。
 func echoRealIP(c *gin.Context) {
 	if ip := c.GetHeader("X-Real-IP"); ip != "" {
 		c.Writer.Header().Set("X-Echoed-Real-IP", ip)
 	}
+}
+
+func setSSEHeaders(c *gin.Context) {
+	c.Writer.Header().Set("Content-Type", sseContentType)
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
 }
 
 func main() {
@@ -208,10 +217,8 @@ func main() {
 			return
 		}
 
-		// 设置响应头
-		c.Writer.Header().Set("Content-Type", "text/event-stream")
-		//c.Writer.Header().Set("Cache-Control", "no-cache")
-		//c.Writer.Header().Set("Connection", "keep-alive")
+		// 设置响应头,显式声明 UTF-8,避免 Python2 客户端按 ISO-8859-1 解码中文。
+		setSSEHeaders(c)
 		c.Writer.WriteHeader(http.StatusOK)
 
 		// 开始流式响应
@@ -251,8 +258,8 @@ func main() {
 			line := "data: " + string(respBytes) + "\n\n"
 			c.Writer.WriteString(line)
 			c.Writer.(http.Flusher).Flush()
-			// 模拟延迟
-			// time.Sleep(100 * time.Millisecond)
+			// 模拟大模型逐块思考和输出的停顿。
+			time.Sleep(streamChunkDelay)
 		}
 
 		// 添加一个额外的块，content 为空，reason 为 "stop"
@@ -348,8 +355,8 @@ func main() {
 			return
 		}
 
-		// 设置响应头
-		c.Writer.Header().Set("Content-Type", "text/event-stream")
+		// 设置响应头,显式声明 UTF-8,避免 Python2 客户端按 ISO-8859-1 解码中文。
+		setSSEHeaders(c)
 		c.Writer.WriteHeader(http.StatusOK)
 
 		//开始流式响应
@@ -382,7 +389,8 @@ func main() {
 			line := "data: " + string(respBytes) + "\n\n"
 			c.Writer.WriteString(line)
 			c.Writer.(http.Flusher).Flush()
-			time.Sleep(100 * time.Millisecond)
+			// 模拟大模型逐块思考和输出的停顿。
+			time.Sleep(streamChunkDelay)
 		}
 		// 添加一个额外的块，content 为空，is_stop 为 true
 		finalChunk := CustomResponseChunk{
