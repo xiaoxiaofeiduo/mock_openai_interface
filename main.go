@@ -78,6 +78,7 @@ var responseChunks []string
 var customResponseChunks []string
 
 const streamChunkDelay = 300 * time.Millisecond
+const jsonContentType = "application/json; charset=utf-8"
 const sseContentType = "text/event-stream; charset=utf-8"
 
 // echoRealIP 读取请求头 X-Real-IP,若非空则回写到响应头 X-Echoed-Real-IP。
@@ -92,6 +93,11 @@ func setSSEHeaders(c *gin.Context) {
 	c.Writer.Header().Set("Content-Type", sseContentType)
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
+}
+
+func writeJSON(c *gin.Context, code int, obj interface{}) {
+	c.Writer.Header().Set("Content-Type", jsonContentType)
+	c.JSON(code, obj)
 }
 
 func main() {
@@ -116,14 +122,14 @@ func main() {
 
 	// Chrome DevTools 自动探测的元数据,返回空 200 避免 404
 	r.GET("/.well-known/appspecific/com.chrome.devtools.json", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{})
+		writeJSON(c, http.StatusOK, gin.H{})
 	})
 
 	// 新增路由，模拟 OpenAI 流式响应
 	r.POST("/v1/chat/completions", func(c *gin.Context) {
 		var req RequestBody
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			writeJSON(c, http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -137,7 +143,7 @@ func main() {
 			var err error
 			tokenLength, err = strconv.Atoi(tokenLengthStr)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "token_length must be an integer"})
+				writeJSON(c, http.StatusBadRequest, gin.H{"error": "token_length must be an integer"})
 				return
 			}
 		}
@@ -213,7 +219,7 @@ func main() {
 					"total_tokens":      totalTokens,
 				},
 			}
-			c.JSON(http.StatusOK, fullResponse)
+			writeJSON(c, http.StatusOK, fullResponse)
 			return
 		}
 
@@ -296,7 +302,7 @@ func main() {
 	r.POST("/v1/custom/chat", func(c *gin.Context) {
 		var req CustomRequestBody
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			writeJSON(c, http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 			return
 		}
 
@@ -307,7 +313,7 @@ func main() {
 		}
 		tokenLength, err := strconv.Atoi(tokenLengthStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token_length parameter"})
+			writeJSON(c, http.StatusBadRequest, gin.H{"error": "Invalid token_length parameter"})
 			return
 		}
 
@@ -339,7 +345,7 @@ func main() {
 		}
 		if !req.IsStream {
 
-			c.JSON(http.StatusOK, gin.H{
+			writeJSON(c, http.StatusOK, gin.H{
 				"prompt_id": req.PromptId,
 				"uuid": func() string {
 					uuidStr, _ := uuid.GenerateUUID()
