@@ -64,6 +64,28 @@ gofmt -w main.go
 
 当前项目暂无自动化测试文件，`go test ./...` 会显示 `[no test files]`。
 
+## GitHub Release
+
+推送 `v*` 标签会自动触发 GitHub Actions 构建并发布 Release：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+也可以在 GitHub Actions 页面手动运行 `Release` 工作流并填写 tag。
+
+Release 产物包含以下平台：
+
+- `linux/amd64`
+- `linux/arm64`
+- `darwin/amd64`
+- `darwin/arm64`
+- `windows/amd64`
+- `windows/arm64`
+
+每个压缩包都包含可执行文件、`static/` 静态资源、`README.md` 和 `LICENSE`。`checksums.txt` 提供所有产物的 SHA-256 校验值。
+
 ## 接口说明
 
 ### OpenAI 兼容接口

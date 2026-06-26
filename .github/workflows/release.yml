@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v1.0.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: my-gin-project
+
+jobs:
+  release:
+    name: Build and publish release assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.20.x"
+          cache: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Resolve release tag
+        id: release_tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release assets
+        env:
+          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist build/package
+
+          platforms=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+            "windows/amd64"
+            "windows/arm64"
+          )
+
+          for platform in "${platforms[@]}"; do
+            goos="${platform%/*}"
+            goarch="${platform#*/}"
+            asset_name="${APP_NAME}_${RELEASE_TAG}_${goos}_${goarch}"
+            package_dir="build/package/${asset_name}"
+            binary_name="${APP_NAME}"
+
+            if [ "$goos" = "windows" ]; then
+              binary_name="${APP_NAME}.exe"
+            fi
+
+            mkdir -p "$package_dir"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
+              -trimpath \
+              -ldflags "-s -w" \
+              -o "${package_dir}/${binary_name}" \
+              .
+
+            cp -R static "$package_dir/static"
+            cp README.md LICENSE "$package_dir/"
+
+            if [ "$goos" = "windows" ]; then
+              (cd "build/package" && zip -qr "../../dist/${asset_name}.zip" "$asset_name")
+            else
+              tar -czf "dist/${asset_name}.tar.gz" -C "build/package" "$asset_name"
+            fi
+          done
+
+          (cd dist && sha256sum * > checksums.txt)
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* \
+            --title "$RELEASE_TAG" \
+            --generate-notes
