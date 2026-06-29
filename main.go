@@ -24,6 +24,35 @@ type RequestBody struct {
 	Stream   bool             `json:"stream"`
 }
 
+type AnthropicRequestBody struct {
+	Model     string           `json:"model"`
+	MaxTokens int              `json:"max_tokens"`
+	System    string           `json:"system"`
+	Messages  []RequestMessage `json:"messages"`
+	Stream    bool             `json:"stream"`
+}
+
+type AnthropicContentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type AnthropicUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+type AnthropicMessage struct {
+	ID           string                  `json:"id"`
+	Type         string                  `json:"type"`
+	Role         string                  `json:"role"`
+	Model        string                  `json:"model"`
+	Content      []AnthropicContentBlock `json:"content"`
+	StopReason   *string                 `json:"stop_reason"`
+	StopSequence *string                 `json:"stop_sequence"`
+	Usage        AnthropicUsage          `json:"usage"`
+}
+
 // ChoiceDelta 定义响应中的 delta 结构体
 type ChoiceDelta struct {
 	Role    string `json:"role"`
@@ -100,7 +129,36 @@ func writeJSON(c *gin.Context, code int, obj interface{}) {
 	c.JSON(code, obj)
 }
 
-func main() {
+func splitByTokenLength(content string, tokenLength int) []string {
+	if tokenLength <= 0 {
+		tokenLength = 3
+	}
+
+	var chunks []string
+	runes := []rune(content)
+	for i := 0; i < len(runes); i += tokenLength {
+		end := i + tokenLength
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunks = append(chunks, string(runes[i:end]))
+	}
+	return chunks
+}
+
+func writeSSEEvent(c *gin.Context, event string, obj interface{}) bool {
+	respBytes, err := json.Marshal(obj)
+	if err != nil {
+		log.Printf("Failed to marshal %s event: %v", event, err)
+		return false
+	}
+	c.Writer.WriteString("event: " + event + "\n")
+	c.Writer.WriteString("data: " + string(respBytes) + "\n\n")
+	c.Writer.(http.Flusher).Flush()
+	return true
+}
+
+func setupRouter() *gin.Engine {
 	r := gin.Default()
 
 	// 静态文件服务
@@ -299,6 +357,120 @@ func main() {
 		c.Writer.(http.Flusher).Flush()
 	})
 
+	r.POST("/v1/messages", func(c *gin.Context) {
+		var req AnthropicRequestBody
+		if err := c.ShouldBindJSON(&req); err != nil {
+			writeJSON(c, http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+			return
+		}
+
+		tokenLengthStr := c.Query("token_length")
+		if tokenLengthStr == "" {
+			tokenLengthStr = "3"
+		}
+		tokenLength, err := strconv.Atoi(tokenLengthStr)
+		if err != nil {
+			writeJSON(c, http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "token_length must be an integer"}})
+			return
+		}
+
+		echoRealIP(c)
+
+		combinedContent := req.System
+		chunks := splitByTokenLength(combinedContent, tokenLength)
+		stopReason := "end_turn"
+		messageID := "msg_mock_01"
+		model := req.Model
+		if model == "" {
+			model = "claude-3-5-sonnet-20241022"
+		}
+		outputTokens := len([]rune(combinedContent))
+		message := AnthropicMessage{
+			ID:    messageID,
+			Type:  "message",
+			Role:  "assistant",
+			Model: model,
+			Content: []AnthropicContentBlock{
+				{
+					Type: "text",
+					Text: combinedContent,
+				},
+			},
+			StopReason: &stopReason,
+			Usage: AnthropicUsage{
+				InputTokens:  len(req.Messages) + len([]rune(req.System)),
+				OutputTokens: outputTokens,
+			},
+		}
+
+		if !req.Stream {
+			writeJSON(c, http.StatusOK, message)
+			return
+		}
+
+		// Anthropic Messages API 使用 event + data 的 SSE 事件序列,不追加 [DONE] 标记。
+		setSSEHeaders(c)
+		c.Writer.WriteHeader(http.StatusOK)
+
+		startMessage := message
+		startMessage.Content = []AnthropicContentBlock{}
+		startMessage.StopReason = nil
+		startMessage.Usage.OutputTokens = 0
+		if !writeSSEEvent(c, "message_start", gin.H{
+			"type":    "message_start",
+			"message": startMessage,
+		}) {
+			return
+		}
+
+		if !writeSSEEvent(c, "content_block_start", gin.H{
+			"type":  "content_block_start",
+			"index": 0,
+			"content_block": gin.H{
+				"type": "text",
+				"text": "",
+			},
+		}) {
+			return
+		}
+
+		for _, chunk := range chunks {
+			if !writeSSEEvent(c, "content_block_delta", gin.H{
+				"type":  "content_block_delta",
+				"index": 0,
+				"delta": gin.H{
+					"type": "text_delta",
+					"text": chunk,
+				},
+			}) {
+				return
+			}
+			time.Sleep(streamChunkDelay)
+		}
+
+		if !writeSSEEvent(c, "content_block_stop", gin.H{
+			"type":  "content_block_stop",
+			"index": 0,
+		}) {
+			return
+		}
+
+		if !writeSSEEvent(c, "message_delta", gin.H{
+			"type": "message_delta",
+			"delta": gin.H{
+				"stop_reason":   stopReason,
+				"stop_sequence": nil,
+			},
+			"usage": gin.H{
+				"output_tokens": outputTokens,
+			},
+		}) {
+			return
+		}
+
+		writeSSEEvent(c, "message_stop", gin.H{"type": "message_stop"})
+	})
+
 	r.POST("/v1/custom/chat", func(c *gin.Context) {
 		var req CustomRequestBody
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -424,6 +596,12 @@ func main() {
 		c.Writer.WriteString("data: [FINISH]\n\n")
 		c.Writer.(http.Flusher).Flush()
 	})
+
+	return r
+}
+
+func main() {
+	r := setupRouter()
 
 	// 启动服务器，默认在 0.0.0.0:8080 启动服务
 	if err := r.Run("[::]:8080"); err != nil {

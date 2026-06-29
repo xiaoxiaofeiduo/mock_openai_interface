@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anthropic Messages 模拟测试</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+
+<body>
+    <main class="page-shell">
+        <header class="topbar">
+            <div class="brand">
+                <p class="eyebrow">Anthropic Compatible</p>
+                <h1>Anthropic Messages 模拟测试</h1>
+                <p class="subtitle">填写用户消息和预设模型答复，模拟 `/v1/messages` 的流式或非流式响应。</p>
+            </div>
+            <a class="home-link" href="/">返回导航</a>
+        </header>
+
+        <section class="workspace">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">请求参数</h2>
+                    <p class="panel-note">System 内容会作为模型回复内容，并按 Token 长度切片返回。</p>
+                </div>
+                <form id="chatForm">
+                    <div class="field-group">
+                        <label class="field-label" for="user_messages_0">
+                            用户消息
+                            <span class="field-hint">可添加多条</span>
+                        </label>
+                        <div id="user_messages_container" class="message-stack">
+                            <div class="message-item">
+                                <textarea id="user_messages_0" class="user_message" name="user_messages[]" placeholder="例如：请介绍一下这个接口" rows="2"></textarea>
+                            </div>
+                        </div>
+                        <div class="actions">
+                            <button type="button" onclick="addUserMessage()" class="secondary-button">添加用户消息</button>
+                        </div>
+                    </div>
+
+                    <div class="field-group">
+                        <label class="field-label" for="system_message">
+                            Model 答复
+                            <span class="field-hint">服务端会返回这里的内容</span>
+                        </label>
+                        <textarea id="system_message" name="system_message" placeholder="例如：这是一个模拟的 Anthropic 流式回复。" rows="4"></textarea>
+                    </div>
+
+                    <div class="controls-grid">
+                        <div class="control-field">
+                            <label for="model">模型</label>
+                            <input type="text" id="model" name="model" value="claude-3-5-sonnet-20241022" placeholder="输入模型名称" class="model-input">
+                        </div>
+                        <div class="control-field">
+                            <label for="max_tokens">Max Tokens</label>
+                            <input type="text" id="max_tokens" name="max_tokens" value="1024" placeholder="1024" class="token-length-input">
+                        </div>
+                        <div class="control-field">
+                            <label for="token_length">Token 长度</label>
+                            <input type="text" id="token_length" name="token_length" value="3" placeholder="3" class="token-length-input">
+                        </div>
+                        <div class="control-field">
+                            <label for="x_real_ip">X-Real-IP</label>
+                            <input type="text" id="x_real_ip" name="x_real_ip" value="" placeholder="可选" class="x-real-ip-input">
+                        </div>
+                        <div class="control-field">
+                            <label for="stream">传输方式</label>
+                            <label class="toggle-field" for="stream">
+                                <span>流式传输</span>
+                                <input type="checkbox" id="stream" name="stream" checked>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button type="submit">发送请求</button>
+                        <button type="button" class="secondary-button" onclick="document.getElementById('chat_box').innerHTML = ''">清空对话</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="panel chat-panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">响应预览</h2>
+                    <p class="panel-note">用户消息靠右显示，模型回复靠左显示。</p>
+                </div>
+                <div id="chat_box"></div>
+            </div>
+        </section>
+    </main>
+    <script>
+        function appendMessageField(containerId, className, name, placeholder, idPrefix) {
+            const container = document.getElementById(containerId);
+            const newIndex = container.querySelectorAll('textarea').length;
+            const item = document.createElement('div');
+            item.className = 'message-item';
+
+            const textarea = document.createElement('textarea');
+            textarea.id = `${idPrefix}_${newIndex}`;
+            textarea.className = className;
+            textarea.name = name;
+            textarea.placeholder = placeholder;
+            textarea.rows = 1;
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'danger-button';
+            removeButton.textContent = '删除';
+            removeButton.addEventListener('click', function () {
+                item.remove();
+            });
+
+            item.appendChild(textarea);
+            item.appendChild(removeButton);
+            container.appendChild(item);
+            textarea.focus();
+        }
+
+        function addUserMessage() {
+            appendMessageField('user_messages_container', 'user_message', 'user_messages[]', '输入用户消息', 'user_messages');
+        }
+
+        function appendUserMessages(userMessages) {
+            const chatBox = document.getElementById('chat_box');
+            userMessages.forEach(message => {
+                if (message) {
+                    const userMessageDiv = document.createElement('div');
+                    userMessageDiv.classList.add('user-message');
+                    userMessageDiv.textContent = `User: ${message}`;
+                    chatBox.appendChild(userMessageDiv);
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                }
+            });
+        }
+
+        document.getElementById('chatForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+
+            const model = document.getElementById('model').value;
+            const stream = document.getElementById('stream').checked;
+            const tokenLength = document.getElementById('token_length').value;
+            const maxTokens = Number(document.getElementById('max_tokens').value) || 1024;
+            const systemMessage = document.getElementById('system_message').value;
+            const xRealIp = document.getElementById('x_real_ip').value.trim();
+            const headers = { 'Content-Type': 'application/json' };
+            if (xRealIp) {
+                headers['X-Real-IP'] = xRealIp;
+            }
+
+            const userMessages = Array.from(document.querySelectorAll('.user_message')).map(textarea => textarea.value);
+            const messages = userMessages
+                .filter(message => message)
+                .map(message => ({
+                    role: "user",
+                    content: message
+                }));
+
+            const data = {
+                model: model,
+                max_tokens: maxTokens,
+                system: systemMessage,
+                messages: messages,
+                stream: stream
+            };
+
+            const url = `/v1/messages?token_length=${tokenLength}`;
+            appendUserMessages(userMessages);
+
+            if (stream) {
+                const chatBox = document.getElementById('chat_box');
+                let aiMessage = '';
+                let aiMessageDiv = null;
+
+                fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(data)
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+
+                        function read() {
+                            return reader.read().then(({ done, value }) => {
+                                if (done) {
+                                    return;
+                                }
+                                buffer += decoder.decode(value, { stream: true });
+                                const events = buffer.split('\n\n');
+                                buffer = events.pop();
+
+                                events.forEach(eventText => {
+                                    const dataLine = eventText.split('\n').find(line => line.startsWith('data: '));
+                                    if (!dataLine) {
+                                        return;
+                                    }
+
+                                    try {
+                                        const responseData = JSON.parse(dataLine.slice(6).trim());
+                                        if (responseData.type === 'content_block_delta' && responseData.delta && responseData.delta.text) {
+                                            aiMessage += responseData.delta.text;
+
+                                            if (!aiMessageDiv) {
+                                                aiMessageDiv = document.createElement('div');
+                                                aiMessageDiv.classList.add('ai-message');
+                                                aiMessageDiv.textContent = `Model: ${aiMessage}`;
+                                                chatBox.appendChild(aiMessageDiv);
+                                            } else {
+                                                aiMessageDiv.textContent = `Model: ${aiMessage}`;
+                                            }
+                                            chatBox.scrollTop = chatBox.scrollHeight;
+                                        }
+                                    } catch (error) {
+                                        console.error('Failed to parse JSON:', error);
+                                    }
+                                });
+
+                                return read();
+                            });
+                        }
+
+                        return read();
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+            } else {
+                fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(data)
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(result => {
+                        const chatBox = document.getElementById('chat_box');
+                        const aiMessageDiv = document.createElement('div');
+                        aiMessageDiv.classList.add('ai-message');
+                        aiMessageDiv.textContent = `Model: ${result.content[0].text}`;
+                        chatBox.appendChild(aiMessageDiv);
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+            }
+        });
+    </script>
+</body>
+
+</html>
